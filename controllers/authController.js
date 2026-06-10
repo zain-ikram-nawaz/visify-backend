@@ -11,18 +11,17 @@ const sendTokenCookie = (res, brandId) => {
     { expiresIn: '7d' }
   );
 
-
   const isProduction = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT;
-const cookieOptions = {
-    // 👈 FIX 1: MaxAge use karein (Browser ke timezone ka rola khatam)
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 din milliseconds mein
+  const cookieOptions = {
+    maxAge: 7 * 24 * 60 * 60 * 1000,
     httpOnly: true,
-    secure: true, // 👈 FIX 2: Live (Railway) par hamesha HTTPS hota hai, isko direct true rakhein
-    sameSite: 'none', // 👈 FIX 3: Cross-domain (Vercel to Railway) ke liye 'none' lazmi hai aur sath secure: true hona zaroori hai
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
     path: '/'
   };
 
   res.cookie('token', token, cookieOptions);
+  return token;
 };
 
 
@@ -46,11 +45,11 @@ export const register = async (req, res) => {
       apiKey,
     });
 
-    // Secure Cookie lagayein
-    sendTokenCookie(res, brand._id);
+    const token = sendTokenCookie(res, brand._id);
 
     res.status(201).json({
       message: 'Brand registered successfully',
+      token,
       brand: {
         id: brand._id,
         name: brand.name,
@@ -79,11 +78,11 @@ export const login = async (req, res) => {
       return res.status(400).json({ message: 'Invalid email or password' });
     }
 
-    // Secure Cookie lagayein
-    sendTokenCookie(res, brand._id);
+    const token = sendTokenCookie(res, brand._id);
 
     res.json({
       message: 'Login successful',
+      token,
       brand: {
         id: brand._id,
         name: brand.name,
