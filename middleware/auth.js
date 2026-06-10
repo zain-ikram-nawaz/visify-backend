@@ -3,7 +3,12 @@ import Brand from '../models/Brand.js';
 
 const protect = async (req, res, next) => {
   try {
-    let token = req.cookies.token; // 👈 Token seedha cookie se uthayein
+    let token = req.cookies.token;
+
+    // Authorization header se token lo (cross-origin Vercel → Railway ke liye)
+    if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
 
     if (!token) {
       return res.status(401).json({ message: 'Not authorized — no token' });
