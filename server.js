@@ -21,7 +21,8 @@ app.use(cors({
   // 👈 Dono URLs ke aakhir se trailing slash (/) hata dein
   origin: [
     process.env.FRONTEND_URL, // Ensure karein ke .env mein bhi aakhir mein '/' na ho (e.g., https://visify.com)
-    "http://localhost:5173"   // 👈 '/' hata diya
+    "http://localhost:5173",
+    "http://localhost:3000"   // 👈 '/' hata diya
   ],
   credentials: true // Cookies exchange karne ke liye lazmi hai
 }));
