@@ -11,16 +11,20 @@ const sendTokenCookie = (res, brandId) => {
     { expiresIn: '7d' }
   );
 
-  const cookieOptions = {
-    expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 din ki expiry
-    httpOnly: true, // 👈 JavaScript access nahi kar sakti (XSS Safe)
-    secure: process.env.NODE_ENV === 'production', // 👈 Production (HTTPS) par true hoga, local (HTTP) par false
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 👈 Cross-domain cookies ke liye production mein 'none' lagta hai
+
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT;
+const cookieOptions = {
+    // 👈 FIX 1: MaxAge use karein (Browser ke timezone ka rola khatam)
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 din milliseconds mein
+    httpOnly: true,
+    secure: true, // 👈 FIX 2: Live (Railway) par hamesha HTTPS hota hai, isko direct true rakhein
+    sameSite: 'none', // 👈 FIX 3: Cross-domain (Vercel to Railway) ke liye 'none' lazmi hai aur sath secure: true hona zaroori hai
     path: '/'
   };
 
   res.cookie('token', token, cookieOptions);
 };
+
 
 // Register
 export const register = async (req, res) => {
@@ -95,11 +99,15 @@ export const login = async (req, res) => {
 
 // Logout
 export const logout = async (req, res) => {
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT;
+
   res.cookie('token', '', {
     httpOnly: true,
-    expires: new Date(0), // Cookie ko foran expire karne ke liye
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    // 👈 FIX 4: Clear karne ke liye maxAge: 0 ya expires past date dono same flags ke sath hone chahiye
+    maxAge: 0,
+    expires: new Date(0),
+    secure: true,
+    sameSite: 'none',
     path: '/'
   });
   res.status(200).json({ message: 'Logged out successfully' });
