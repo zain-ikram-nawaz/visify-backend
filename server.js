@@ -8,6 +8,7 @@ import productRoutes from './routes/productRoutes.js';
 import embedRoutes from './routes/embedRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
+import configuratorRoutes from './routes/configuratorRoutes.js';
 
 
 
@@ -58,6 +59,8 @@ app.use('/api/products', productRoutes);
 app.use('/api/embed', embedRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/configurator', configuratorRoutes);
+
 
 
 
