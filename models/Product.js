@@ -26,6 +26,10 @@ const productSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  shopifyHandle: {
+  type: String,
+  default: null,
+},
 }, { timestamps: true });
 
 export default mongoose.model('Product', productSchema);

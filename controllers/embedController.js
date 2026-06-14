@@ -3,33 +3,31 @@ import Product from '../models/Product.js';
 import Analytics from '../models/Analytics.js';
 
 // Embed data fetch — viewer is API se config lega
-export const getEmbedData = async (req, res) => {
+export const getEmbedByHandle = async (req, res) => {
   try {
-    const { apiKey, productId } = req.params;
+    const { apiKey, handle } = req.params;
 
-    // Brand dhundo apiKey se
     const brand = await Brand.findOne({ apiKey });
     if (!brand) {
       return res.status(404).json({ message: 'Invalid API key' });
     }
 
-    // Subscription check
     if (brand.subscriptionStatus !== 'active') {
       return res.status(403).json({ message: 'Subscription inactive' });
     }
 
-    // Product dhundo
+    // Handle se product dhundo
     const product = await Product.findOne({
-      _id: productId,
       brandId: brand._id,
+      shopifyHandle: handle,
       isActive: true,
     });
 
     if (!product) {
-      return res.status(404).json({ message: 'Product not found' });
+      return res.status(404).json({ message: 'No 3D model for this product' });
     }
 
-    // Analytics — view track karo
+    // Analytics track
     await Analytics.create({
       brandId: brand._id,
       productId: product._id,
@@ -37,7 +35,7 @@ export const getEmbedData = async (req, res) => {
     });
 
     res.json({
-       brand: { id: brand._id, name: brand.name },
+      brand: { id: brand._id, name: brand.name },
       product: {
         id: product._id,
         name: product.name,
