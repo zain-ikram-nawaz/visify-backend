@@ -1,52 +1,48 @@
+
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import cookieParser from 'cookie-parser'; // 👈 Import karein
+import cookieParser from 'cookie-parser';
+
 import authRoutes from './routes/authRoutes.js';
 import productRoutes from './routes/productRoutes.js';
 import embedRoutes from './routes/embedRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 
-
-
-
-
 dotenv.config();
 
 const app = express();
 
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://visify-dashboard.vercel.app',
+];
 
-  // Dashboard aur local ke liye credentials allow karo
-  const allowedOrigins = [
-    'http://localhost:3000',
-    'https://visify-dashboard.vercel.app',
-  ];
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Postman ya server-side requests
+      if (!origin) return callback(null, true);
 
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-  } else {
-    // Shopify aur baaki sab ke liye open
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
 
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      return callback(null, false);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
 
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
+// OPTIONS requests handle karne ke liye
+app.options('*', cors());
 
-  next();
-});
-
-// Purana cors() hata do — yeh custom middleware use karo
 app.use(express.json());
-app.use(cookieParser()); // 👈 Yeh middleware cookies read karne ke liye chahiye
+app.use(cookieParser());
 
 // Routes
 app.get('/', (req, res) => {
@@ -59,16 +55,14 @@ app.use('/api/embed', embedRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/analytics', analyticsRoutes);
 
-
-
-
-
 // MongoDB connect
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => {
     const PORT = process.env.PORT || 8080;
+
     console.log('MongoDB Connected!');
+
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
