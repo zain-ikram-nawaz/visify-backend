@@ -25,7 +25,7 @@ const brandSchema = new mongoose.Schema({
   subscriptionStatus: {
     type: String,
     enum: ['active', 'inactive', 'cancelled'],
-    default: 'inactive',
+    default: 'active',
   },
   apiKey: {
     type: String,

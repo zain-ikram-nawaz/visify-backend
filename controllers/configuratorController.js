@@ -15,10 +15,6 @@ export const getConfiguratorByHandle = async (req, res) => {
     const brand = await Brand.findOne({ apiKey });
     if (!brand) return res.status(404).json({ message: 'Invalid API key' });
 
-    if (brand.subscriptionStatus !== 'active') {
-      return res.status(403).json({ message: 'Subscription inactive' });
-    }
-
     const product = await ConfiguratorProduct.findOne({
       brandId: brand._id,
       shopifyHandle: handle,
@@ -138,7 +134,6 @@ export const createConfiguratorProduct = async (req, res) => {
       baseModelName,
       basePrice,
       shopifyHandle,
-      shopifyProductId,
       backgroundColor,
       environmentLight,
       cameraPosition,
@@ -152,7 +147,6 @@ export const createConfiguratorProduct = async (req, res) => {
       baseModelName: baseModelName || 'Base',
       basePrice: basePrice || 0,
       shopifyHandle: shopifyHandle || null,
-      shopifyProductId: shopifyProductId || null,
       backgroundColor: backgroundColor || '#0f0f0f',
       environmentLight: environmentLight || 'studio',
       cameraPosition: cameraPosition || { x: 0, y: 1, z: 3 },
@@ -245,12 +239,10 @@ export const addPart = async (req, res) => {
       name,
       description,
       modelUrl,
-      thumbnailUrl,
       isDefault,
       isRequired,
       category,
       basePrice,
-      variants,
       sortOrder,
     } = req.body;
 
@@ -258,12 +250,11 @@ export const addPart = async (req, res) => {
       name,
       description: description || '',
       modelUrl,
-      thumbnailUrl: thumbnailUrl || null,
       isDefault: isDefault || false,
       isRequired: isRequired || false,
       category: category || 'general',
       basePrice: basePrice || 0,
-      variants: variants || [],
+      variants: [],
       sortOrder: sortOrder || product.parts.length,
     });
 
@@ -339,14 +330,13 @@ export const addVariant = async (req, res) => {
     const part = product.parts.id(req.params.partId);
     if (!part) return res.status(404).json({ message: 'Part not found' });
 
-    const { label, type, value, priceModifier, thumbnailUrl } = req.body;
+    const { label, type, value, priceModifier } = req.body;
 
     part.variants.push({
       label,
       type: type || 'color',
       value,
       priceModifier: priceModifier || 0,
-      thumbnailUrl: thumbnailUrl || null,
     });
 
     await product.save();
