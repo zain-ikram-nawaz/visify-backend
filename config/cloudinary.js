@@ -21,5 +21,16 @@ const storage = new CloudinaryStorage({
   },
 });
 
+// Texture image storage config (variant textures — wood grain, fabric, etc.)
+const textureStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'visify-textures',
+    resource_type: 'image',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+  },
+});
+
 export const upload = multer({ storage });
+export const uploadTexture = multer({ storage: textureStorage });
 export default cloudinary;

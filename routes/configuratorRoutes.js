@@ -3,6 +3,7 @@ import protect from '../middleware/auth.js';
 import {
   // Public
   getConfiguratorByHandle,
+  getConfiguratorByShop,
   // Session
   createSession,
   updateSession,
@@ -13,6 +14,7 @@ import {
   getConfiguratorProduct,
   updateConfiguratorProduct,
   deleteConfiguratorProduct,
+  syncConfiguratorProductPrice,
   // Parts
   addPart,
   updatePart,
@@ -25,6 +27,8 @@ import {
 const router = express.Router();
 
 // ── Public routes ─────────────────────────────────
+// Auto-connect path used by the storefront viewer (no API key needed)
+router.get('/public/by-shop/:shopDomain/:handle', getConfiguratorByShop);
 router.get('/public/:apiKey/:handle', getConfiguratorByHandle);
 
 // ── Session routes ────────────────────────────────
@@ -41,6 +45,7 @@ router.post('/products', createConfiguratorProduct);
 router.get('/products/:id', getConfiguratorProduct);
 router.put('/products/:id', updateConfiguratorProduct);
 router.delete('/products/:id', deleteConfiguratorProduct);
+router.post('/products/:id/sync-price', syncConfiguratorProductPrice);
 
 // Parts
 router.post('/products/:id/parts', addPart);

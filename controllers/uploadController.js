@@ -16,3 +16,20 @@ export const uploadModel = async (req, res) => {
     res.status(500).json({ message: 'Upload failed', error: err.message });
   }
 };
+
+export const uploadTextureImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    res.json({
+      message: 'Texture uploaded successfully',
+      textureUrl: req.file.path,
+      publicId: req.file.filename,
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: 'Upload failed', error: err.message });
+  }
+};

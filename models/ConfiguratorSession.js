@@ -40,4 +40,9 @@ const configuratorSessionSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
+// Data retention: sessions (part/variant selections + computed price) aren't
+// needed once checkout happens — the authoritative order lives in Shopify's
+// own Draft Order/Order — so auto-delete 90 days after creation.
+configuratorSessionSchema.index({ createdAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 90 });
+
 export default mongoose.model('ConfiguratorSession', configuratorSessionSchema);

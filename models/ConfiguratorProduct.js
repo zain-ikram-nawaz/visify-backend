@@ -40,11 +40,18 @@ const configuratorProductSchema = new mongoose.Schema({
   description: { type: String, default: '' },
 
   // ── Shopify Link ──
+  // shopifyHandle is the only thing the merchant types — the real product
+  // identity (shopifyProductId) and basePrice are fetched from Shopify's
+  // Admin API and kept in sync (see visify-backend/utils/shopifyBridge.js),
+  // never typed by hand.
   shopifyHandle: { type: String, default: null },
+  shopifyProductId: { type: String, default: null },
 
   // ── Base Model ──
   baseModelUrl: { type: String, required: true },
   baseModelName: { type: String, default: 'Base' },
+  // System-set from the linked Shopify product's real admin price — see
+  // shopifyBridge.getProductPrice(). Not merchant-editable.
   basePrice: { type: Number, default: 0 },
 
   // ── Parts ──

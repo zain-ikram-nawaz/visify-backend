@@ -1,6 +1,7 @@
 import ConfiguratorProduct from '../models/ConfiguratorProduct.js';
 import ConfiguratorSession from '../models/ConfiguratorSession.js';
 import Brand from '../models/Brand.js';
+import { getProductPrice, createDraftOrder } from '../utils/shopifyBridge.js';
 
 // ════════════════════════════════════════════════════
 // PUBLIC — Viewer ke liye
@@ -14,6 +15,10 @@ export const getConfiguratorByHandle = async (req, res) => {
 
     const brand = await Brand.findOne({ apiKey });
     if (!brand) return res.status(404).json({ message: 'Invalid API key' });
+
+    if (brand.subscriptionStatus !== 'active') {
+      return res.status(403).json({ message: 'Subscription inactive' });
+    }
 
     const product = await ConfiguratorProduct.findOne({
       brandId: brand._id,
@@ -31,6 +36,70 @@ export const getConfiguratorByHandle = async (req, res) => {
       configurator: product,
     });
 
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// GET /api/configurator/by-shop/:shopDomain/:handle
+// Auto-connect path used by the storefront viewer when no explicit API key
+// is set on the theme block — looks the shop up directly, no copy/paste key.
+export const getConfiguratorByShop = async (req, res) => {
+  try {
+    const { shopDomain, handle } = req.params;
+
+    const brand = await Brand.findOne({ shopDomain });
+    if (!brand) return res.status(404).json({ message: 'Shop not connected to Visify' });
+
+    if (brand.subscriptionStatus !== 'active') {
+      return res.status(403).json({ message: 'Subscription inactive' });
+    }
+
+    const product = await ConfiguratorProduct.findOne({
+      brandId: brand._id,
+      shopifyHandle: handle,
+      isActive: true,
+      isPublished: true,
+    });
+
+    if (!product) {
+      return res.status(404).json({ message: 'No configurator for this product' });
+    }
+
+    res.json({
+      brand: { id: brand._id, name: brand.name },
+      configurator: product,
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// GET /api/public/products/:id  (X-API-Key header)
+// Used by the dashboard's own "Preview" button — lets a brand preview a
+// configurator product by its Mongo ID with their API key, even before it's
+// published/linked to a Shopify handle.
+export const getPublicConfiguratorProductById = async (req, res) => {
+  try {
+    const apiKey = req.headers['x-api-key'];
+    if (!apiKey) {
+      return res.status(401).json({ message: 'Missing X-API-Key header' });
+    }
+
+    const brand = await Brand.findOne({ apiKey });
+    if (!brand) return res.status(404).json({ message: 'Invalid API key' });
+
+    const product = await ConfiguratorProduct.findOne({
+      _id: req.params.id,
+      brandId: brand._id,
+    });
+
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
+    res.json({ product });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
   }
@@ -80,7 +149,9 @@ export const updateSession = async (req, res) => {
 };
 
 // POST /api/configurator/session/:id/cart
-// Shopify cart mein bhejo — line item properties ke saath
+// Ek Shopify Draft Order banao — line item properties ke saath, aur exact
+// configured total (base + selected parts) charge karo. Koi pre-mapped
+// variant ya combination-cap ki zaroorat nahi.
 export const addToCart = async (req, res) => {
   try {
     const session = await ConfiguratorSession.findById(req.params.id);
@@ -89,6 +160,12 @@ export const addToCart = async (req, res) => {
     const configurator = await ConfiguratorProduct.findById(
       session.configuratorProductId
     );
+    if (!configurator) return res.status(404).json({ message: 'Configurator not found' });
+
+    const brand = await Brand.findById(session.brandId);
+    if (!brand?.shopDomain) {
+      return res.status(400).json({ message: 'This checkout flow requires a Shopify-linked brand' });
+    }
 
     // Shopify line item properties format
     const lineItemProperties = session.selectedParts.map((part) => ({
@@ -96,22 +173,27 @@ export const addToCart = async (req, res) => {
       value: part.variantLabel,
     }));
 
-    // Price bhi add karo
-    lineItemProperties.push({
-      name: 'Total Configuration Price',
-      value: `$${session.totalPrice}`,
+    const title = [configurator.name, ...session.selectedParts.map((p) => p.variantLabel)]
+      .filter(Boolean)
+      .join(' — ');
+
+    const invoiceUrl = await createDraftOrder(brand.shopDomain, {
+      title,
+      price: session.totalPrice,
+      properties: lineItemProperties,
     });
 
-    // Session update karo
     session.status = 'cart';
     await session.save();
 
     res.json({
-      message: 'Cart data ready',
+      message: 'Checkout ready',
       shopifyCartData: {
         properties: lineItemProperties,
         totalPrice: session.totalPrice,
         configuratorProductId: configurator._id,
+        checkoutUrl: invoiceUrl,
+        isDevStub: process.env.SKIP_DRAFT_ORDER === 'true',
       },
     });
 
@@ -123,6 +205,18 @@ export const addToCart = async (req, res) => {
 // ════════════════════════════════════════════════════
 // DASHBOARD — Brand ke liye (protected)
 // ════════════════════════════════════════════════════
+
+// Fetches the real Shopify admin price for a handle and applies it to a
+// ConfiguratorProduct. Shopify-linked brands only — brands without a
+// shopDomain (Woo/BigCommerce/standalone) keep whatever basePrice they set
+// manually, since there's no Shopify product to sync from.
+const syncPriceFromShopify = async (brand, product, shopifyHandle) => {
+  if (!brand.shopDomain || !shopifyHandle) return;
+
+  const { shopifyProductId, price } = await getProductPrice(brand.shopDomain, shopifyHandle);
+  product.shopifyProductId = shopifyProductId;
+  product.basePrice = price;
+};
 
 // POST /api/configurator/products
 export const createConfiguratorProduct = async (req, res) => {
@@ -139,7 +233,7 @@ export const createConfiguratorProduct = async (req, res) => {
       cameraPosition,
     } = req.body;
 
-    const product = await ConfiguratorProduct.create({
+    const product = new ConfiguratorProduct({
       brandId: req.brand._id,
       name,
       description,
@@ -152,6 +246,12 @@ export const createConfiguratorProduct = async (req, res) => {
       cameraPosition: cameraPosition || { x: 0, y: 1, z: 3 },
       parts: [],
     });
+
+    if (shopifyHandle) {
+      await syncPriceFromShopify(req.brand, product, shopifyHandle);
+    }
+
+    await product.save();
 
     res.status(201).json({ message: 'Configurator created', product });
   } catch (err) {
@@ -191,15 +291,53 @@ export const getConfiguratorProduct = async (req, res) => {
 // PUT /api/configurator/products/:id
 export const updateConfiguratorProduct = async (req, res) => {
   try {
-    const product = await ConfiguratorProduct.findOneAndUpdate(
-      { _id: req.params.id, brandId: req.brand._id },
-      { ...req.body },
-      { new: true }
-    );
-
+    const product = await ConfiguratorProduct.findOne({
+      _id: req.params.id,
+      brandId: req.brand._id,
+    });
     if (!product) return res.status(404).json({ message: 'Product not found' });
 
+    const { basePrice, ...rest } = req.body;
+    const handleChanged = 'shopifyHandle' in rest && rest.shopifyHandle !== product.shopifyHandle;
+
+    Object.assign(product, rest);
+    // basePrice stays system-set for Shopify-linked brands — ignore any
+    // manually-passed value there, only apply it for non-Shopify brands.
+    if (!req.brand.shopDomain && basePrice !== undefined) {
+      product.basePrice = basePrice;
+    }
+
+    if (handleChanged && product.shopifyHandle) {
+      await syncPriceFromShopify(req.brand, product, product.shopifyHandle);
+    }
+
+    await product.save();
+
     res.json({ message: 'Updated', product });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// POST /api/configurator/products/:id/sync-price
+// Manual "Re-sync from Shopify" button — refetches the linked product's
+// current admin price on demand, instead of waiting for the webhook.
+export const syncConfiguratorProductPrice = async (req, res) => {
+  try {
+    const product = await ConfiguratorProduct.findOne({
+      _id: req.params.id,
+      brandId: req.brand._id,
+    });
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    if (!req.brand.shopDomain || !product.shopifyHandle) {
+      return res.status(400).json({ message: 'No Shopify product linked to sync from' });
+    }
+
+    await syncPriceFromShopify(req.brand, product, product.shopifyHandle);
+    await product.save();
+
+    res.json({ message: 'Price synced', product });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
   }
