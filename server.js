@@ -22,7 +22,7 @@ app.use((req, res, next) => {
 
   // Dashboard aur local ke liye credentials allow karo — env se aata hai,
   // comma se alag multiple origins de sakte ho (e.g. dashboard + viewer preview)
-  const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000')
+  const allowedOrigins = (process.env.FRONTEND_URL)
     .split(',')
     .map((url) => url.trim().replace(/\/$/, ''));
 
