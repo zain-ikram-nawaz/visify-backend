@@ -16,9 +16,11 @@ export const getConfiguratorByHandle = async (req, res) => {
     const brand = await Brand.findOne({ apiKey });
     if (!brand) return res.status(404).json({ message: 'Invalid API key' });
 
+    /*
     if (brand.subscriptionStatus !== 'active') {
       return res.status(403).json({ message: 'Subscription inactive' });
     }
+    */
 
     const product = await ConfiguratorProduct.findOne({
       brandId: brand._id,
@@ -51,9 +53,11 @@ export const getConfiguratorByShop = async (req, res) => {
     const brand = await Brand.findOne({ shopDomain });
     if (!brand) return res.status(404).json({ message: 'Shop not connected to Visify' });
 
+    /*
     if (brand.subscriptionStatus !== 'active') {
       return res.status(403).json({ message: 'Subscription inactive' });
     }
+    */
 
     const product = await ConfiguratorProduct.findOne({
       brandId: brand._id,
