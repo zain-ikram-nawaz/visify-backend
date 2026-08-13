@@ -56,7 +56,6 @@ export const register = async (req, res) => {
         id: brand._id,
         name: brand.name,
         email: brand.email,
-        plan: brand.plan,
         apiKey: brand.apiKey,
       },
     });
@@ -89,7 +88,7 @@ export const login = async (req, res) => {
         id: brand._id,
         name: brand.name,
         email: brand.email,
-        plan: brand.plan,
+
         apiKey: brand.apiKey,
       },
     });
@@ -117,17 +116,12 @@ export const shopifyLink = async (req, res) => {
         name: name || shopDomain,
         shopDomain,
         apiKey,
-        // Real access is granted once the Shopify Billing webhook confirms
-        // an active subscription — see webhooks.app_subscriptions_update.
-        subscriptionStatus: 'inactive',
       });
     }
 
     res.json({
       brandId: brand._id,
       apiKey: brand.apiKey,
-      plan: brand.plan,
-      subscriptionStatus: brand.subscriptionStatus,
     });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
@@ -154,27 +148,6 @@ export const shopifyUnlink = async (req, res) => {
     await Brand.deleteOne({ _id: brand._id });
 
     res.json({ ok: true, deleted: true });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
-  }
-};
-
-// Called by the Visify Shopify app whenever Shopify sends an
-// app_subscriptions/update webhook, keeping billing status in sync with
-// Shopify Billing (the source of truth for shop-linked brands).
-export const shopifySubscriptionUpdate = async (req, res) => {
-  try {
-    const { shopDomain, status } = req.body;
-
-    if (!shopDomain || !status) {
-      return res.status(400).json({ message: 'shopDomain and status are required' });
-    }
-
-    const subscriptionStatus = status === 'ACTIVE' ? 'active' : status === 'CANCELLED' ? 'cancelled' : 'inactive';
-
-    await Brand.findOneAndUpdate({ shopDomain }, { subscriptionStatus });
-
-    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
   }
@@ -219,8 +192,6 @@ export const getBrandByShop = async (req, res) => {
     res.json({
       name: brand.name,
       apiKey: brand.apiKey,
-      plan: brand.plan,
-      subscriptionStatus: brand.subscriptionStatus,
     });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
@@ -282,8 +253,6 @@ export const consumeSsoToken = async (req, res) => {
       return res.status(404).json({ message: 'Brand not found' });
     }
 
-    const token = sendTokenCookie(res, brand._id);
-
     res.json({
       message: 'Login successful',
       token,
@@ -291,16 +260,9 @@ export const consumeSsoToken = async (req, res) => {
         id: brand._id,
         name: brand.name,
         email: brand.email,
-        plan: brand.plan,
         apiKey: brand.apiKey,
       },
     });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
-  }
-};
-
-// Logout
 export const logout = async (req, res) => {
   const isProduction = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT;
 

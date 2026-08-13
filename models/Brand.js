@@ -33,16 +33,6 @@ const brandSchema = new mongoose.Schema({
     trim: true,
     default: null,
   },
-  plan: {
-    type: String,
-    enum: ['starter', 'pro', 'agency'],
-    default: 'starter',
-  },
-  subscriptionStatus: {
-    type: String,
-    enum: ['active', 'inactive', 'cancelled'],
-    default: 'active',
-  },
   apiKey: {
     type: String,
     unique: true,

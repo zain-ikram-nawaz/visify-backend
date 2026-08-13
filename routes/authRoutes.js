@@ -1,5 +1,5 @@
 import express from 'express';
-import { register, login, logout, shopifyLink, shopifyUnlink, shopifySubscriptionUpdate, shopifyProductPriceUpdate, getBrandByShop, createSsoToken, consumeSsoToken } from '../controllers/authController.js';
+import { register, login, logout, shopifyLink, shopifyUnlink, shopifyProductPriceUpdate, getBrandByShop, createSsoToken, consumeSsoToken } from '../controllers/authController.js';
 import protect from '../middleware/auth.js';
 import internalOnly from '../middleware/internalAuth.js';
 
@@ -18,8 +18,6 @@ router.post('/shopify/link', internalOnly, shopifyLink);
 // Server-to-server only — called on shop/redact and app/uninstalled to
 // permanently wipe the Brand, its ConfiguratorProducts, and Cloudinary assets.
 router.post('/shopify/unlink', internalOnly, shopifyUnlink);
-// Server-to-server only — called by the Visify Shopify app on app_subscriptions/update.
-router.post('/shopify/subscription', internalOnly, shopifySubscriptionUpdate);
 // Server-to-server only — called by the Visify Shopify app on products/update.
 router.post('/shopify/product-price', internalOnly, shopifyProductPriceUpdate);
 // Server-to-server only — read-only status lookup for the app's admin home page.
