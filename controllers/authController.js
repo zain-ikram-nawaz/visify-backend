@@ -253,6 +253,8 @@ export const consumeSsoToken = async (req, res) => {
       return res.status(404).json({ message: 'Brand not found' });
     }
 
+    const token = sendTokenCookie(res, brand._id);
+
     res.json({
       message: 'Login successful',
       token,
@@ -263,6 +265,12 @@ export const consumeSsoToken = async (req, res) => {
         apiKey: brand.apiKey,
       },
     });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// Logout
 export const logout = async (req, res) => {
   const isProduction = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT;
 

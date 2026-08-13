@@ -20,9 +20,9 @@ const app = express();
 app.use((req, res, next) => {
   const origin = req.headers.origin;
 
-  // Dashboard aur local ke liye credentials allow karo — env se aata hai,
-  // comma se alag multiple origins de sakte ho (e.g. dashboard + viewer preview)
-  const allowedOrigins = (process.env.FRONTEND_URL)
+  // Allowed origins from env (comma-separated), with fallback to dashboard URL
+  const frontendUrlEnv = process.env.FRONTEND_URL || 'https://dashboard.zingcalc.com,https://viewer.zingcalc.com';
+  const allowedOrigins = frontendUrlEnv
     .split(',')
     .map((url) => url.trim().replace(/\/$/, ''));
 
@@ -30,7 +30,7 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
   } else {
-    // Shopify aur baaki sab ke liye open
+    // For non-credentialed requests (Shopify, public API)
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
 
