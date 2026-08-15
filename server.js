@@ -16,17 +16,23 @@ import publicRoutes from './routes/publicRoutes.js';
 dotenv.config();
 
 const app = express();
+const defaultAllowedOrigins = [
+  'https://dashboard.zingcalc.com',
+  'https://viewer.zingcalc.com',
+];
+const configuredAllowedOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map((url) => url.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+const allowedOrigins = new Set([
+  ...defaultAllowedOrigins,
+  ...configuredAllowedOrigins,
+]);
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
 
-  // Allowed origins from env (comma-separated), with fallback to dashboard URL
-  const frontendUrlEnv = process.env.FRONTEND_URL || 'https://dashboard.zingcalc.com,https://viewer.zingcalc.com';
-  const allowedOrigins = frontendUrlEnv
-    .split(',')
-    .map((url) => url.trim().replace(/\/$/, ''));
-
-  if (allowedOrigins.includes(origin)) {
+  if (allowedOrigins.has(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
   } else {
