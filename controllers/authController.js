@@ -199,7 +199,7 @@ export const getBrandByShop = async (req, res) => {
 };
 
 // Called by the Visify Shopify app server to hand a merchant a one-click,
-// password-less login into the dashboard. Short-lived (2 min) and
+// password-less login into the dashboard. Short-lived (10 min) and
 // single-purpose — it can only be exchanged for a real session via
 // consumeSsoToken, never used as a session token itself.
 export const createSsoToken = async (req, res) => {
@@ -218,7 +218,10 @@ export const createSsoToken = async (req, res) => {
     const ssoToken = jwt.sign(
       { id: brand._id, purpose: 'dashboard-sso' },
       process.env.JWT_SECRET,
-      { expiresIn: '2m' },
+      {
+        expiresIn: '10m',
+        jwtid: crypto.randomUUID(),
+      },
     );
 
     res.json({ ssoToken });
@@ -239,7 +242,9 @@ export const consumeSsoToken = async (req, res) => {
 
     let decoded;
     try {
-      decoded = jwt.verify(ssoToken, process.env.JWT_SECRET);
+      decoded = jwt.verify(ssoToken, process.env.JWT_SECRET, {
+        clockTolerance: 30,
+      });
     } catch (err) {
       if (err.name === 'TokenExpiredError') {
         return res.status(401).json({ message: 'Login link expired — go back to Shopify admin and try again' });
