@@ -240,8 +240,12 @@ export const consumeSsoToken = async (req, res) => {
     let decoded;
     try {
       decoded = jwt.verify(ssoToken, process.env.JWT_SECRET);
-    } catch {
-      return res.status(401).json({ message: 'Link expired — go back to Shopify admin and try again' });
+    } catch (err) {
+      if (err.name === 'TokenExpiredError') {
+        return res.status(401).json({ message: 'Login link expired — go back to Shopify admin and try again' });
+      }
+
+      return res.status(401).json({ message: 'Invalid login link — go back to Shopify admin and try again' });
     }
 
     if (decoded.purpose !== 'dashboard-sso') {
