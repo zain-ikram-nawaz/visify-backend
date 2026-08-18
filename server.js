@@ -56,7 +56,7 @@ app.use(cookieParser()); // 👈 Yeh middleware cookies read karne ke liye chahi
 
 // Routes
 app.get('/', (req, res) => {
-  res.json({ message: 'Visify Backend Running!' });
+  res.json({ message: 'Visify Backend Running on CICD Pipeline!' });
 });
 
 app.use('/api/auth', authRoutes);
