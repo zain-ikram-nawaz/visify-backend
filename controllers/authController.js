@@ -284,6 +284,10 @@ export const consumeSsoToken = async (req, res) => {
       });
     } catch (err) {
       if (err.name === 'TokenExpiredError') {
+        console.warn('Expired dashboard SSO token', {
+          expiredAt: err.expiredAt?.toISOString?.() || null,
+          serverTime: new Date().toISOString(),
+        });
         return res.status(401).json({ message: 'Login link expired — go back to Shopify admin and try again' });
       }
 

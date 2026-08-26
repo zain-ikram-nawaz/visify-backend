@@ -494,6 +494,7 @@ export const syncConfiguratorProductPrice = async (req, res) => {
       product.shopifySyncError = err.message?.slice(0, 300) || 'Sync failed';
       await product.save().catch(() => {});
     }
+    console.error('syncConfiguratorProductPrice failed:', err);
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };

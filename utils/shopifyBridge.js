@@ -15,22 +15,31 @@ const internalHeaders = () => ({
 // a merchant links/changes a shopifyHandle and by the dashboard's "Re-sync"
 // button.
 export async function getProductPrice(shopDomain, handle) {
-  if (!appUrl()) {
-    throw new Error('VISIFY_APP_URL not set — cannot reach Shopify');
+  try {
+    if (!appUrl()) {
+      throw new Error('VISIFY_APP_URL not set — cannot reach Shopify');
+    }
+
+    const response = await fetch(`${appUrl()}/internal/shopify/product-price`, {
+      method: 'POST',
+      headers: internalHeaders(),
+      body: JSON.stringify({ shopDomain, handle }),
+    });
+
+    const text = await response.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch {
+      throw new Error(`Shopify app returned a non-JSON response (${response.status})`);
+    }
+    if (!response.ok) {
+      throw new Error(data.message || `Failed to fetch price for handle "${handle}"`);
+    }
+
+    return data; // { shopifyProductId, shopifyVariantId, price }
+  } catch (err) {
+    console.error('Shopify price lookup failed:', { shopDomain, handle, message: err.message });
+    throw err;
   }
-
-  const response = await fetch(`${appUrl()}/internal/shopify/product-price`, {
-    method: 'POST',
-    headers: internalHeaders(),
-    body: JSON.stringify({ shopDomain, handle }),
-  });
-
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.message || `Failed to fetch price for handle "${handle}"`);
-  }
-
-  return data; // { shopifyProductId, shopifyVariantId, price }
 }
 
 // Creates a Shopify Draft Order with a custom line item priced at the exact
