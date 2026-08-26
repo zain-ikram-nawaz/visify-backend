@@ -295,6 +295,7 @@ export const addToCart = async (req, res) => {
     });
 
   } catch (err) {
+    console.error('addToCart failed:', err);
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
