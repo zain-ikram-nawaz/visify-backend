@@ -118,6 +118,10 @@ app.use((err, req, res, next) => {
   if (err?.name === 'MulterError' || err?.code === 'LIMIT_FILE_SIZE') {
     return res.status(400).json({ message: err.code === 'LIMIT_FILE_SIZE' ? 'Uploaded file is too large' : err.message });
   }
+  if (req.path.startsWith('/api/upload')) {
+    console.error('Upload/storage error:', err);
+    return res.status(502).json({ message: 'File storage upload failed. Check the Cloudinary configuration.' });
+  }
   console.error('Unhandled API error:', err);
   return res.status(err?.status || 500).json({ message: 'Internal server error' });
 });
