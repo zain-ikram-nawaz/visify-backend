@@ -48,6 +48,8 @@ const allowedOrigins = new Set([
   ...defaultAllowedOrigins,
   ...configuredAllowedOrigins,
 ]);
+const isShopifyStoreOrigin = (origin) =>
+  /^https:\/\/[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(origin || '');
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -56,7 +58,7 @@ app.use((req, res, next) => {
   // never serve one origin's CORS headers to another.
   res.setHeader('Vary', 'Origin');
 
-  if (allowedOrigins.has(origin)) {
+  if (allowedOrigins.has(origin) || isShopifyStoreOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
   } else if (
