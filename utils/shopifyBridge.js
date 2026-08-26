@@ -32,7 +32,8 @@ export async function getProductPrice(shopDomain, handle) {
       throw new Error(`Shopify app returned a non-JSON response (${response.status})`);
     }
     if (!response.ok) {
-      throw new Error(data.message || `Failed to fetch price for handle "${handle}"`);
+      const detail = data.error ? `: ${data.error}` : '';
+      throw new Error(`${data.message || `Failed to fetch price for handle "${handle}"`}${detail}`);
     }
 
     return data; // { shopifyProductId, shopifyVariantId, price }
