@@ -78,4 +78,8 @@ const configuratorProductSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
+// Security audit F21: the hottest storefront query — every product page load —
+// runs exactly this shape, so cover it with one compound index.
+configuratorProductSchema.index({ brandId: 1, shopifyHandle: 1, isActive: 1, isPublished: 1 });
+
 export default mongoose.model('ConfiguratorProduct', configuratorProductSchema);

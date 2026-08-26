@@ -25,6 +25,8 @@ async function destroyAsset(url, resourceType) {
   }
 }
 
+export { destroyAsset };
+
 // Deletes every model/texture asset a brand's ConfiguratorProducts reference.
 // Best-effort: one bad/already-deleted public_id is logged and skipped rather
 // than aborting the rest of the wipe.

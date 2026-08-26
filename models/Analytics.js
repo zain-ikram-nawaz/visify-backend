@@ -22,4 +22,7 @@ const analyticsSchema = new mongoose.Schema({
   },
 }, { timestamps: true });
 
+// Security audit F21: dashboard analytics reads filter by brand + event.
+analyticsSchema.index({ brandId: 1, event: 1 });
+
 export default mongoose.model('Analytics', analyticsSchema);

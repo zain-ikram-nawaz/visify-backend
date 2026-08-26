@@ -1,5 +1,6 @@
 import Brand from '../models/Brand.js';
 import ConfiguratorProduct from '../models/ConfiguratorProduct.js';
+import ConsumedSsoToken from '../models/ConsumedSsoToken.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -8,7 +9,10 @@ import { deleteBrandAssets } from '../utils/cloudinaryCleanup.js';
 // Token generate aur cookie set karne ka helper function
 const sendTokenCookie = (res, brandId) => {
   const token = jwt.sign(
-    { id: brandId },
+    // Security audit F4: purpose claim — protect() requires 'session', so the
+    // short-lived SSO token (purpose 'dashboard-sso') can never be replayed as
+    // a full session token.
+    { id: brandId, purpose: 'session' },
     process.env.JWT_SECRET,
     { expiresIn: '7d' }
   );
@@ -30,7 +34,22 @@ const sendTokenCookie = (res, brandId) => {
 // Register
 export const register = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    // Security audit F14: validate types and shape at the boundary — an
+    // untyped body used to reach Mongo queries as objects ({ email: { $ne: null } })
+    // and bcrypt.hash(undefined) returned a 500 instead of a 400.
+    const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+    const email = typeof req.body.email === 'string' ? req.body.email.trim() : '';
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Name, email and password are required' });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ message: 'Invalid email address' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters' });
+    }
 
     const exists = await Brand.findOne({ email });
     if (exists) {
@@ -65,18 +84,28 @@ export const register = async (req, res) => {
 };
 
 // Login
+// Security audit F27: unknown email ab bhi ek dummy hash ke against bcrypt
+// compare karta hai, taake response timing se email enumeration na ho saken.
+let dummyHashPromise = null;
+const getDummyHash = () => {
+  if (!dummyHashPromise) {
+    dummyHashPromise = bcrypt.hash(crypto.randomBytes(16).toString('hex'), 12);
+  }
+  return dummyHashPromise;
+};
+
 export const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = typeof req.body.email === 'string' ? req.body.email.trim() : '';
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
 
     const brand = await Brand.findOne({ email });
-    if (!brand) {
-      return res.status(400).json({ message: 'Invalid email or password' });
-    }
+    const isMatch = brand
+      ? await bcrypt.compare(password, brand.password)
+      : await bcrypt.compare(password, await getDummyHash());
 
-    const isMatch = await bcrypt.compare(password, brand.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid email or password' });
+    if (!brand || !isMatch) {
+      return res.status(401).json({ message: 'Invalid email or password' });
     }
 
     const token = sendTokenCookie(res, brand._id);
@@ -255,6 +284,22 @@ export const consumeSsoToken = async (req, res) => {
 
     if (decoded.purpose !== 'dashboard-sso') {
       return res.status(401).json({ message: 'Invalid token' });
+    }
+
+    // Security audit F25: the SSO token travels in a URL query parameter, so it
+    // can leak into browser history and Referer headers. Record its jti on first
+    // exchange and reject any reuse — a stolen link stops working after one use.
+    if (decoded.jti) {
+      try {
+        await ConsumedSsoToken.create({ jti: decoded.jti });
+      } catch (err) {
+        if (err.code === 11000) {
+          return res.status(401).json({
+            message: 'Login link already used — go back to Shopify admin and try again',
+          });
+        }
+        throw err;
+      }
     }
 
     const brand = await Brand.findById(decoded.id);

@@ -2,6 +2,57 @@ import ConfiguratorProduct from '../models/ConfiguratorProduct.js';
 import ConfiguratorSession from '../models/ConfiguratorSession.js';
 import Brand from '../models/Brand.js';
 import { getProductPrice, createDraftOrder } from '../utils/shopifyBridge.js';
+import { destroyAsset } from '../utils/cloudinaryCleanup.js';
+
+// ── Server-side pricing (security audit F1) ────────────────────────────
+// The browser-computed totalPrice is NEVER trusted. Every part/variant id the
+// client submits is validated against the ConfiguratorProduct itself and the
+// total is recomputed from basePrice + part.basePrice + variant.priceModifier.
+const computeSessionPricing = (configurator, submittedParts) => {
+  if (!Array.isArray(submittedParts)) {
+    return { error: 'selectedParts must be an array' };
+  }
+
+  const partMap = new Map(configurator.parts.map((p) => [String(p._id), p]));
+  const validatedParts = [];
+  let total = Number(configurator.basePrice) || 0;
+
+  for (const submitted of submittedParts) {
+    const part = partMap.get(String(submitted?.partId));
+    if (!part) {
+      return { error: 'One of the selected parts does not belong to this configurator' };
+    }
+
+    let variantId = null;
+    let variantLabel = '';
+    let variantValue = '';
+    let priceModifier = 0;
+
+    if (submitted.variantId) {
+      const variant = part.variants.id(submitted.variantId);
+      if (!variant) {
+        return { error: 'One of the selected variants does not belong to this configurator' };
+      }
+      variantId = variant._id;
+      variantLabel = variant.label;
+      variantValue = variant.value;
+      priceModifier = Number(variant.priceModifier) || 0;
+    }
+
+    total += (Number(part.basePrice) || 0) + priceModifier;
+
+    validatedParts.push({
+      partId: part._id,
+      partName: part.name,
+      variantId,
+      variantLabel,
+      variantValue,
+      priceModifier,
+    });
+  }
+
+  return { validatedParts, total: Math.round(total * 100) / 100 };
+};
 
 // ════════════════════════════════════════════════════
 // PUBLIC — Viewer ke liye
@@ -136,15 +187,22 @@ export const createSession = async (req, res) => {
 // User ne koi part select kiya — update karo
 export const updateSession = async (req, res) => {
   try {
-    const { selectedParts, totalPrice } = req.body;
-
-    const session = await ConfiguratorSession.findByIdAndUpdate(
-      req.params.id,
-      { selectedParts, totalPrice, status: 'active' },
-      { new: true }
-    );
-
+    const session = await ConfiguratorSession.findById(req.params.id);
     if (!session) return res.status(404).json({ message: 'Session not found' });
+
+    // Security audit F1: price server-side recompute — client totalPrice ignore.
+    const configurator = await ConfiguratorProduct.findById(
+      session.configuratorProductId
+    );
+    if (!configurator) return res.status(404).json({ message: 'Configurator not found' });
+
+    const pricing = computeSessionPricing(configurator, req.body.selectedParts);
+    if (pricing.error) return res.status(400).json({ message: pricing.error });
+
+    session.selectedParts = pricing.validatedParts;
+    session.totalPrice = pricing.total;
+    session.status = 'active';
+    await session.save();
 
     res.json({ session });
   } catch (err) {
@@ -170,6 +228,15 @@ export const addToCart = async (req, res) => {
     if (!brand?.shopDomain) {
       return res.status(400).json({ message: 'This checkout flow requires a Shopify-linked brand' });
     }
+
+    // Security audit F1 (critical): recompute the chargeable total from the
+    // ConfiguratorProduct right now. The stored session.totalPrice was written
+    // by an unauthenticated request and is never charged directly.
+    const pricing = computeSessionPricing(configurator, session.selectedParts);
+    if (pricing.error) return res.status(400).json({ message: pricing.error });
+
+    session.selectedParts = pricing.validatedParts;
+    session.totalPrice = pricing.total;
 
     // Shopify line item properties format
     const lineItemProperties = session.selectedParts.map((part) => ({
@@ -302,15 +369,32 @@ export const updateConfiguratorProduct = async (req, res) => {
     if (!product) return res.status(404).json({ message: 'Product not found' });
 
     const { basePrice, ...rest } = req.body;
-    const handleChanged = 'shopifyHandle' in rest && rest.shopifyHandle !== product.shopifyHandle;
 
-    Object.assign(product, rest);
+    // Security audit F6: allowlist updatable fields. `rest` used to be applied
+    // raw, so a brand could smuggle brandId (moving its product into another
+    // tenant's dashboard), _id or timestamps through mass assignment.
+    const allowedFields = [
+      'name',
+      'description',
+      'shopifyHandle',
+      'baseModelUrl',
+      'baseModelName',
+      'cameraPosition',
+      'backgroundColor',
+      'environmentLight',
+      'isActive',
+      'isPublished',
+    ];
+    for (const field of allowedFields) {
+      if (field in rest) product[field] = rest[field];
+    }
     // basePrice stays system-set for Shopify-linked brands — ignore any
     // manually-passed value there, only apply it for non-Shopify brands.
     if (!req.brand.shopDomain && basePrice !== undefined) {
       product.basePrice = basePrice;
     }
 
+    const handleChanged = 'shopifyHandle' in rest && rest.shopifyHandle !== product.shopifyHandle;
     if (handleChanged && product.shopifyHandle) {
       await syncPriceFromShopify(req.brand, product, product.shopifyHandle);
     }
@@ -350,12 +434,28 @@ export const syncConfiguratorProductPrice = async (req, res) => {
 // DELETE /api/configurator/products/:id
 export const deleteConfiguratorProduct = async (req, res) => {
   try {
-    const product = await ConfiguratorProduct.findOneAndDelete({
+    const product = await ConfiguratorProduct.findOne({
       _id: req.params.id,
       brandId: req.brand._id,
     });
 
     if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    await product.deleteOne();
+
+    // Security audit F22: destroy the product's Cloudinary assets so storage
+    // doesn't grow forever. Best-effort — failures are logged inside destroyAsset.
+    const jobs = [];
+    if (product.baseModelUrl) jobs.push(destroyAsset(product.baseModelUrl, 'raw'));
+    for (const part of product.parts || []) {
+      if (part.modelUrl) jobs.push(destroyAsset(part.modelUrl, 'raw'));
+      for (const variant of part.variants || []) {
+        if (variant.type === 'texture' && variant.value) {
+          jobs.push(destroyAsset(variant.value, 'image'));
+        }
+      }
+    }
+    await Promise.allSettled(jobs);
 
     res.json({ message: 'Deleted' });
   } catch (err) {
@@ -424,7 +524,21 @@ export const updatePart = async (req, res) => {
     const part = product.parts.id(req.params.partId);
     if (!part) return res.status(404).json({ message: 'Part not found' });
 
-    Object.assign(part, req.body);
+    // Security audit F6: allowlist — never Object.assign the raw body onto a
+    // subdocument (it could carry _id or unrelated fields).
+    const allowedFields = [
+      'name',
+      'description',
+      'modelUrl',
+      'isDefault',
+      'isRequired',
+      'category',
+      'basePrice',
+      'sortOrder',
+    ];
+    for (const field of allowedFields) {
+      if (field in req.body) part[field] = req.body[field];
+    }
     await product.save();
 
     res.json({ message: 'Part updated', product });
@@ -442,6 +556,18 @@ export const deletePart = async (req, res) => {
     });
 
     if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    const removedPart = product.parts.id(req.params.partId);
+
+    // Security audit F22: clean up the part's Cloudinary assets before dropping it.
+    if (removedPart?.modelUrl) {
+      await Promise.allSettled([destroyAsset(removedPart.modelUrl, 'raw')]);
+      for (const variant of removedPart.variants || []) {
+        if (variant.type === 'texture' && variant.value) {
+          await destroyAsset(variant.value, 'image').catch(() => {});
+        }
+      }
+    }
 
     product.parts = product.parts.filter(
       (p) => p._id.toString() !== req.params.partId
@@ -501,6 +627,13 @@ export const deleteVariant = async (req, res) => {
 
     const part = product.parts.id(req.params.partId);
     if (!part) return res.status(404).json({ message: 'Part not found' });
+
+    const removedVariant = part.variants.id(req.params.variantId);
+
+    // Security audit F22: texture variants own a Cloudinary image — destroy it.
+    if (removedVariant?.type === 'texture' && removedVariant.value) {
+      await destroyAsset(removedVariant.value, 'image').catch(() => {});
+    }
 
     part.variants = part.variants.filter(
       (v) => v._id.toString() !== req.params.variantId
