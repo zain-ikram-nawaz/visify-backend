@@ -353,14 +353,32 @@ export const createConfiguratorProduct = async (req, res) => {
       parts: [],
     });
 
+    let syncWarning = null;
     if (shopifyHandle) {
-      await syncPriceFromShopify(req.brand, product, shopifyHandle);
+      try {
+        await syncPriceFromShopify(req.brand, product, shopifyHandle);
+      } catch (err) {
+        // Do not lose the configurator just because Shopify is temporarily
+        // unavailable. Save it as an error state so the dashboard can retry.
+        syncWarning = err.message || 'Shopify product sync failed';
+        product.shopifySyncStatus = 'error';
+        product.shopifySyncError = syncWarning.slice(0, 300);
+        console.error('Shopify sync failed while creating configurator:', err);
+      }
     }
 
     await product.save();
 
-    res.status(201).json({ message: 'Configurator created', product });
+    res.status(201).json({
+      message: syncWarning ? 'Configurator created; Shopify sync needs a retry' : 'Configurator created',
+      warning: syncWarning,
+      product,
+    });
   } catch (err) {
+    console.error('createConfiguratorProduct failed:', err);
+    if (err?.name === 'ValidationError') {
+      return res.status(400).json({ message: 'Invalid configurator data', error: err.message });
+    }
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
