@@ -187,9 +187,9 @@ export const shopifyUnlink = async (req, res) => {
 // keeps ConfiguratorProduct.basePrice in sync without any manual re-typing.
 export const shopifyProductPriceUpdate = async (req, res) => {
   try {
-    const { shopDomain, shopifyProductId, price } = req.body;
+    const { shopDomain, shopifyProductId, price, currencyCode, imageUrl, imageAlt } = req.body;
 
-    if (!shopDomain || !shopifyProductId || price == null) {
+    if (!shopDomain || !shopifyProductId || price == null || !Number.isFinite(Number(price))) {
       return res.status(400).json({ message: 'shopDomain, shopifyProductId and price are required' });
     }
 
@@ -198,7 +198,15 @@ export const shopifyProductPriceUpdate = async (req, res) => {
 
     await ConfiguratorProduct.updateMany(
       { brandId: brand._id, shopifyProductId },
-      { basePrice: price },
+      {
+        basePrice: price,
+        ...(currencyCode ? { currencyCode } : {}),
+        ...(imageUrl !== undefined ? { shopifyImageUrl: imageUrl || null } : {}),
+        ...(imageAlt !== undefined ? { shopifyImageAlt: imageAlt || null } : {}),
+        shopifySyncStatus: 'synced',
+        shopifySyncedAt: new Date(),
+        shopifySyncError: null,
+      },
     );
 
     res.json({ ok: true });

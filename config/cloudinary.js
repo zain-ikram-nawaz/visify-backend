@@ -31,6 +31,26 @@ const textureStorage = new CloudinaryStorage({
   },
 });
 
-export const upload = multer({ storage });
-export const uploadTexture = multer({ storage: textureStorage });
+// Part thumbnail storage config
+const thumbnailStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'visify-thumbnails',
+    resource_type: 'image',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+  },
+});
+
+const modelFileFilter = (req, file, cb) => {
+  const extension = file.originalname.toLowerCase().split('.').pop();
+  cb(null, ['glb', 'gltf'].includes(extension));
+};
+
+const imageFileFilter = (req, file, cb) => {
+  cb(null, /^image\/(jpeg|png|webp)$/.test(file.mimetype));
+};
+
+export const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 }, fileFilter: modelFileFilter });
+export const uploadTexture = multer({ storage: textureStorage, limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: imageFileFilter });
+export const uploadThumbnail = multer({ storage: thumbnailStorage, limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: imageFileFilter });
 export default cloudinary;

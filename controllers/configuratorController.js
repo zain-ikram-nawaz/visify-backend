@@ -1,6 +1,7 @@
 import ConfiguratorProduct from '../models/ConfiguratorProduct.js';
 import ConfiguratorSession from '../models/ConfiguratorSession.js';
 import Brand from '../models/Brand.js';
+import crypto from 'node:crypto';
 import { getProductPrice, createDraftOrder } from '../utils/shopifyBridge.js';
 import { destroyAsset } from '../utils/cloudinaryCleanup.js';
 
@@ -51,7 +52,23 @@ const computeSessionPricing = (configurator, submittedParts) => {
     });
   }
 
+  const selectedIds = new Set(validatedParts.map((item) => String(item.partId)));
+  const missingRequired = configurator.parts.find(
+    (part) => part.isRequired && !selectedIds.has(String(part._id)),
+  );
+  if (missingRequired) {
+    return { error: `${missingRequired.name} is required` };
+  }
+
   return { validatedParts, total: Math.round(total * 100) / 100 };
+};
+
+const getSessionToken = (req) => req.get('X-Session-Token') || req.body?.sessionToken;
+
+const findSessionForRequest = async (req) => {
+  const session = await ConfiguratorSession.findById(req.params.id);
+  if (!session || !session.sessionToken || session.sessionToken !== getSessionToken(req)) return null;
+  return session;
 };
 
 // ════════════════════════════════════════════════════
@@ -169,7 +186,16 @@ export const createSession = async (req, res) => {
   try {
     const { brandId, configuratorProductId } = req.body;
 
+    const product = await ConfiguratorProduct.findOne({
+      _id: configuratorProductId,
+      brandId,
+      isActive: true,
+      isPublished: true,
+    });
+    if (!product) return res.status(404).json({ message: 'Configurator not found' });
+
     const session = await ConfiguratorSession.create({
+      sessionToken: crypto.randomBytes(32).toString('hex'),
       brandId,
       configuratorProductId,
       selectedParts: [],
@@ -187,8 +213,8 @@ export const createSession = async (req, res) => {
 // User ne koi part select kiya — update karo
 export const updateSession = async (req, res) => {
   try {
-    const session = await ConfiguratorSession.findById(req.params.id);
-    if (!session) return res.status(404).json({ message: 'Session not found' });
+    const session = await findSessionForRequest(req);
+    if (!session) return res.status(401).json({ message: 'Invalid configurator session' });
 
     // Security audit F1: price server-side recompute — client totalPrice ignore.
     const configurator = await ConfiguratorProduct.findById(
@@ -216,8 +242,8 @@ export const updateSession = async (req, res) => {
 // variant ya combination-cap ki zaroorat nahi.
 export const addToCart = async (req, res) => {
   try {
-    const session = await ConfiguratorSession.findById(req.params.id);
-    if (!session) return res.status(404).json({ message: 'Session not found' });
+    const session = await findSessionForRequest(req);
+    if (!session) return res.status(401).json({ message: 'Invalid configurator session' });
 
     const configurator = await ConfiguratorProduct.findById(
       session.configuratorProductId
@@ -284,9 +310,18 @@ export const addToCart = async (req, res) => {
 const syncPriceFromShopify = async (brand, product, shopifyHandle) => {
   if (!brand.shopDomain || !shopifyHandle) return;
 
-  const { shopifyProductId, price } = await getProductPrice(brand.shopDomain, shopifyHandle);
+  const { shopifyProductId, price, currencyCode, imageUrl, imageAlt } = await getProductPrice(
+    brand.shopDomain,
+    shopifyHandle,
+  );
   product.shopifyProductId = shopifyProductId;
   product.basePrice = price;
+  product.currencyCode = currencyCode || product.currencyCode || 'USD';
+  product.shopifyImageUrl = imageUrl || null;
+  product.shopifyImageAlt = imageAlt || null;
+  product.shopifySyncStatus = 'synced';
+  product.shopifySyncedAt = new Date();
+  product.shopifySyncError = null;
 };
 
 // POST /api/configurator/products
@@ -369,6 +404,7 @@ export const updateConfiguratorProduct = async (req, res) => {
     if (!product) return res.status(404).json({ message: 'Product not found' });
 
     const { basePrice, ...rest } = req.body;
+    const previousShopifyHandle = product.shopifyHandle;
 
     // Security audit F6: allowlist updatable fields. `rest` used to be applied
     // raw, so a brand could smuggle brandId (moving its product into another
@@ -394,9 +430,16 @@ export const updateConfiguratorProduct = async (req, res) => {
       product.basePrice = basePrice;
     }
 
-    const handleChanged = 'shopifyHandle' in rest && rest.shopifyHandle !== product.shopifyHandle;
+    const handleChanged = 'shopifyHandle' in rest && rest.shopifyHandle !== previousShopifyHandle;
     if (handleChanged && product.shopifyHandle) {
       await syncPriceFromShopify(req.brand, product, product.shopifyHandle);
+    } else if (handleChanged && !product.shopifyHandle) {
+      product.shopifyProductId = null;
+      product.shopifyImageUrl = null;
+      product.shopifyImageAlt = null;
+      product.shopifySyncStatus = 'pending';
+      product.shopifySyncedAt = null;
+      product.shopifySyncError = null;
     }
 
     await product.save();
@@ -411,8 +454,9 @@ export const updateConfiguratorProduct = async (req, res) => {
 // Manual "Re-sync from Shopify" button — refetches the linked product's
 // current admin price on demand, instead of waiting for the webhook.
 export const syncConfiguratorProductPrice = async (req, res) => {
+  let product;
   try {
-    const product = await ConfiguratorProduct.findOne({
+    product = await ConfiguratorProduct.findOne({
       _id: req.params.id,
       brandId: req.brand._id,
     });
@@ -425,8 +469,13 @@ export const syncConfiguratorProductPrice = async (req, res) => {
     await syncPriceFromShopify(req.brand, product, product.shopifyHandle);
     await product.save();
 
-    res.json({ message: 'Price synced', product });
+    res.json({ message: 'Product data synced', product });
   } catch (err) {
+    if (product) {
+      product.shopifySyncStatus = 'error';
+      product.shopifySyncError = err.message?.slice(0, 300) || 'Sync failed';
+      await product.save().catch(() => {});
+    }
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
@@ -449,6 +498,7 @@ export const deleteConfiguratorProduct = async (req, res) => {
     if (product.baseModelUrl) jobs.push(destroyAsset(product.baseModelUrl, 'raw'));
     for (const part of product.parts || []) {
       if (part.modelUrl) jobs.push(destroyAsset(part.modelUrl, 'raw'));
+      if (part.thumbnailUrl) jobs.push(destroyAsset(part.thumbnailUrl, 'image'));
       for (const variant of part.variants || []) {
         if (variant.type === 'texture' && variant.value) {
           jobs.push(destroyAsset(variant.value, 'image'));
@@ -481,6 +531,7 @@ export const addPart = async (req, res) => {
       name,
       description,
       modelUrl,
+      thumbnailUrl,
       isDefault,
       isRequired,
       category,
@@ -492,6 +543,7 @@ export const addPart = async (req, res) => {
       name,
       description: description || '',
       modelUrl,
+      thumbnailUrl: thumbnailUrl || null,
       isDefault: isDefault || false,
       isRequired: isRequired || false,
       category: category || 'general',
@@ -530,6 +582,7 @@ export const updatePart = async (req, res) => {
       'name',
       'description',
       'modelUrl',
+      'thumbnailUrl',
       'isDefault',
       'isRequired',
       'category',
@@ -560,8 +613,11 @@ export const deletePart = async (req, res) => {
     const removedPart = product.parts.id(req.params.partId);
 
     // Security audit F22: clean up the part's Cloudinary assets before dropping it.
-    if (removedPart?.modelUrl) {
-      await Promise.allSettled([destroyAsset(removedPart.modelUrl, 'raw')]);
+    if (removedPart?.modelUrl || removedPart?.thumbnailUrl) {
+      const assets = [];
+      if (removedPart.modelUrl) assets.push(destroyAsset(removedPart.modelUrl, 'raw'));
+      if (removedPart.thumbnailUrl) assets.push(destroyAsset(removedPart.thumbnailUrl, 'image'));
+      await Promise.allSettled(assets);
       for (const variant of removedPart.variants || []) {
         if (variant.type === 'texture' && variant.value) {
           await destroyAsset(variant.value, 'image').catch(() => {});

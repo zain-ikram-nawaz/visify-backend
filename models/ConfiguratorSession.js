@@ -10,6 +10,13 @@ const selectedPartSchema = new mongoose.Schema({
 });
 
 const configuratorSessionSchema = new mongoose.Schema({
+  sessionToken: {
+    type: String,
+    required: true,
+    unique: true,
+    index: true,
+    sparse: true,
+  },
   brandId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Brand',

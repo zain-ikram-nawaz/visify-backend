@@ -9,6 +9,7 @@ import uploadRoutes from './routes/uploadRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 import configuratorRoutes from './routes/configuratorRoutes.js';
 import publicRoutes from './routes/publicRoutes.js';
+import { createRateLimiter } from './middleware/rateLimit.js';
 
 
 
@@ -29,6 +30,7 @@ if (process.env.NODE_ENV === 'production' && process.env.SKIP_DRAFT_ORDER === 't
 }
 
 const app = express();
+app.set('trust proxy', 1);
 
 // Security audit F13: baseline security headers on every API response.
 app.use(helmet());
@@ -72,7 +74,7 @@ app.use((req, res, next) => {
   }
 
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key, X-Session-Token');
 
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
@@ -82,7 +84,7 @@ app.use((req, res, next) => {
 });
 
 // Purana cors() hata do — yeh custom middleware use karo
-app.use(express.json());
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }));
 
 // Keep API parse failures JSON-shaped. Without this handler Express returns
 // an HTML error page, which makes dashboard Axios calls fail with
@@ -100,11 +102,25 @@ app.get('/', (req, res) => {
   res.json({ message: 'Visify Backend Running on CICD Pipeline!' });
 });
 
-app.use('/api/auth', authRoutes);
-app.use('/api/upload', uploadRoutes);
+app.use('/api/auth', createRateLimiter({ windowMs: 60_000, max: 120 }), authRoutes);
+app.use('/api/upload', createRateLimiter({ windowMs: 60_000, max: 30 }), uploadRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/configurator/session', createRateLimiter({ windowMs: 60_000, max: 60 }));
 app.use('/api/configurator', configuratorRoutes);
 app.use('/api/public', publicRoutes);
+
+app.use('/api', (req, res) => {
+  res.status(404).json({ message: 'API route not found' });
+});
+
+// Keep upload/parser and unexpected failures JSON-shaped for browser clients.
+app.use((err, req, res, next) => {
+  if (err?.name === 'MulterError' || err?.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({ message: err.code === 'LIMIT_FILE_SIZE' ? 'Uploaded file is too large' : err.message });
+  }
+  console.error('Unhandled API error:', err);
+  return res.status(err?.status || 500).json({ message: 'Internal server error' });
+});
 
 
 

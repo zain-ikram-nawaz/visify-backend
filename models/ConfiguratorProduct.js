@@ -19,6 +19,7 @@ const partSchema = new mongoose.Schema({
   name: { type: String, required: true },
   description: { type: String, default: '' },
   modelUrl: { type: String, required: true },
+  thumbnailUrl: { type: String, default: null },
   isDefault: { type: Boolean, default: false },
   isRequired: { type: Boolean, default: false },
   category: { type: String, default: 'general' },
@@ -41,11 +42,20 @@ const configuratorProductSchema = new mongoose.Schema({
 
   // ── Shopify Link ──
   // shopifyHandle is the only thing the merchant types — the real product
-  // identity (shopifyProductId) and basePrice are fetched from Shopify's
+  // identity (shopifyProductId), basePrice, and featured image are fetched from Shopify's
   // Admin API and kept in sync (see visify-backend/utils/shopifyBridge.js),
   // never typed by hand.
   shopifyHandle: { type: String, default: null },
   shopifyProductId: { type: String, default: null },
+  shopifyImageUrl: { type: String, default: null },
+  shopifyImageAlt: { type: String, default: null },
+  shopifySyncStatus: {
+    type: String,
+    enum: ['pending', 'synced', 'error'],
+    default: 'pending',
+  },
+  shopifySyncedAt: { type: Date, default: null },
+  shopifySyncError: { type: String, default: null },
 
   // ── Base Model ──
   baseModelUrl: { type: String, required: true },
@@ -53,6 +63,7 @@ const configuratorProductSchema = new mongoose.Schema({
   // System-set from the linked Shopify product's real admin price — see
   // shopifyBridge.getProductPrice(). Not merchant-editable.
   basePrice: { type: Number, default: 0 },
+  currencyCode: { type: String, default: 'USD', uppercase: true },
 
   // ── Parts ──
   parts: [partSchema],
